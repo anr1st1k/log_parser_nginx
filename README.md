@@ -67,6 +67,18 @@ URL, Referer и User-Agent декодируются в несколько про
 python -m unittest discover -s tests
 ```
 
+## Docker
+
+```bash
+# Сборка образа
+docker build -t log-parser .
+
+# Запуск: монтируем папку с логами
+docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --top 20
+
+# JSON-вывод
+docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --json
+
 ## Лицензия
 
 MIT — подробности в [LICENSE](LICENSE).
