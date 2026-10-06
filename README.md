@@ -78,6 +78,7 @@ docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --top 20
 
 # JSON-вывод
 docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --json
+```
 
 ## Лицензия
 
