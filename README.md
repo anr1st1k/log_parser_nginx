@@ -80,6 +80,14 @@ docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --top 20
 docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --json
 ```
 
+## Анализ безопасности
+Статический анализ безопасности выполнен с помощью `Bandit`:
+```
+pip install bandit
+bandit log_parser_nginx.py
+```
+Результат: замечаний нет (0 issues любой серьезности)
+
 ## Лицензия
 
 MIT — подробности в [LICENSE](LICENSE).
