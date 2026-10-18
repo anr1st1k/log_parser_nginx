@@ -1,5 +1,7 @@
 # log_parser_nginx
 
+[![CI](https://github.com/anr1st1k/log_parser_nginx/actions/workflows/ci.yml/badge.svg)](https://github.com/anr1st1k/log_parser_nginx/actions/workflows/ci.yml)
+
 CLI-утилита для поиска атак в access-логах nginx по regex-сигнатурам (SQLi, XSS, path traversal и др.), с загрузкой правил из официального репозитория OWASP Core Rule Set и кэшированием.
 
 ## Примеры
@@ -80,13 +82,35 @@ docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --top 20
 docker run --rm -v "$PWD/logs:/logs" log-parser /logs/access.log --json
 ```
 
+### Кэш правил между запусками
+
+Правила OWASP CRS кэшируются в `patterns_cache.json` в домашнем каталоге
+пользователя `app`. Чтобы кэш сохранялся между запусками:
+
+```bash
+docker run --rm \
+  -v rules-cache:/home/app \
+  -v "$PWD/logs:/logs:ro" \
+  log-parser /logs/access.log
+```
+
+При первом запуске правила скачиваются, при следующих (в течение суток,
+см. `--cache-ttl`) берутся из кэша. Сбросить кэш: `docker volume rm rules-cache`.
+
 ## Анализ безопасности
-Статический анализ безопасности выполнен с помощью `Bandit`:
-```
-pip install bandit
+
+При каждом push и pull request в CI запускаются:
+
+- [Bandit](https://bandit.readthedocs.io/) — поиск небезопасных конструкций Python;
+- [Semgrep](https://semgrep.dev/) — проверка по набору правил `p/python`.
+
+Локальный запуск:
+
+```bash
+pip install bandit semgrep
 bandit log_parser_nginx.py
+semgrep scan --config p/python --metrics=off log_parser_nginx.py
 ```
-Результат: замечаний нет (0 issues любой серьезности)
 
 ## Лицензия
 
