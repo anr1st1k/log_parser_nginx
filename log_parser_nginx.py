@@ -9,6 +9,7 @@ import requests
 from pathlib import Path
 from urllib.parse import unquote
 from collections import Counter
+from datetime import datetime, timezone
 
 CRS_REF = "v4.0.0"
 CRS_API_URL = "https://api.github.com/repos/coreruleset/coreruleset/contents/rules"
@@ -49,6 +50,7 @@ def read_arg() -> argparse.Namespace:
     parser.add_argument("--paranoia-level", type=int, default=DEFAULT_MAX_PARANOIA_LEVEL, choices=[1, 2, 3, 4],
                          help="макс. paranoia level CRS-правил для загрузки (по умолчанию 1, как в самом CRS; "
                               "уровни 2-4 дают больше покрытия, но заметно больше ложных срабатываний)")
+    parser.add_argument("--jsonl", action="store_true", help="вывести найденные атаки в формате JSONL")
     args = parser.parse_args()
     return args
 
@@ -77,7 +79,7 @@ def parse_request(request):
 
 class LogAnalyzer:
     def __init__(self, use_remote=True, cache_ttl=DEFAULT_CACHE_TTL, cache_path=DEFAULT_CACHE_PATH,
-                 crs_ref=CRS_REF, paranoia_level=DEFAULT_MAX_PARANOIA_LEVEL):
+                 crs_ref=CRS_REF, paranoia_level=DEFAULT_MAX_PARANOIA_LEVEL, collect_attacks=False):
         self.log_pattern = re.compile(
             r'^(?P<ip>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<request>[^"]*)" '
             r'(?P<status>\d+) (?P<size>\S+) "(?P<referer>[^"]*)" "(?P<user_agent>[^"]*)"'
@@ -86,6 +88,8 @@ class LogAnalyzer:
         self.cache_ttl = cache_ttl
         self.crs_ref = crs_ref
         self.paranoia_level = paranoia_level
+        self.collect_attacks = collect_attacks
+        self.attacks = []
         if self.paranoia_level > 1:
             print(
                 f"Предупреждение: paranoia level {self.paranoia_level} в OWASP CRS документированно даёт много "
@@ -276,6 +280,26 @@ class LogAnalyzer:
                     return True
         return False
 
+    @staticmethod
+    def _parse_time(time_str):
+        try:
+            dt = datetime.strptime(time_str, "%d/%b/%Y:%H:%M:%S %z")
+            return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return time_str
+
+    def _to_jsonl_record(self, parsed):
+        ua = parsed["user_agent"]
+        return {
+            "time": self._parse_time(parsed["time"]),
+            "ip": parsed["ip"],
+            "method": parsed["method"],
+            "protocol": parsed["protocol"] or None,
+            "url": parsed["url"],
+            "status": parsed["status"],
+            "user_agent": None if ua == "-" else ua,
+        }
+
     def _is_attack_with_timeout(self, parsed):
         if not self._alarm_supported:
             return self.is_attack(parsed)
@@ -296,8 +320,10 @@ class LogAnalyzer:
         parsed = self.parse_line(line)
         if parsed and self._is_attack_with_timeout(parsed):
             self.counter[parsed["ip"]] += 1
+            if self.collect_attacks:
+                self.attacks.append(parsed)
 
-    def report(self, top_n=10, as_json=False):
+    def report(self, top_n=10, as_json=False, as_jsonl=False):
         top_ips = self.counter.most_common(top_n)
 
         if as_json:
@@ -306,6 +332,11 @@ class LogAnalyzer:
                 ensure_ascii=False,
                 indent=2,
             ))
+            return
+
+        if as_jsonl:
+            for parsed in self.attacks:
+                print(json.dumps(self._to_jsonl_record(parsed), ensure_ascii=False))
             return
 
         if not top_ips:
@@ -330,6 +361,7 @@ def main():
         cache_ttl=args.cache_ttl,
         crs_ref=args.crs_ref,
         paranoia_level=args.paranoia_level,
+        collect_attacks=args.jsonl
     )
 
     try:
@@ -350,7 +382,7 @@ def main():
         print(f"Ошибка чтения '{args.logfile}': {e}", file=sys.stderr)
         sys.exit(1)
 
-    analyzer.report(top_n=args.top, as_json=args.json)
+    analyzer.report(top_n=args.top, as_json=args.json, as_jsonl=args.jsonl)
 
 
 if __name__ == "__main__":
