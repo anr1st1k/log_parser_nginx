@@ -4,11 +4,63 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+import io
+from contextlib import redirect_stdout
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from log_parser_nginx import LogAnalyzer, parse_request
 
+class JsonlTests(unittest.TestCase):
+    def setUp(self):
+        self.analyzer = LogAnalyzer(
+            use_remote=False,
+            cache_path=Path("/tmp/does-not-exist.json"),
+            collect_attacks=True,
+        )
+
+    ATTACK = ('10.0.0.5 - - [10/Oct/2023:13:55:37 +0000] '
+              '"GET /?id=1\' UNION SELECT 1 HTTP/1.1" 200 1 "-" "sqlmap"\n')
+
+    def _run(self):
+        self.analyzer.process_line(self.ATTACK)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.analyzer.report(as_jsonl=True)
+        return buf.getvalue()
+
+    def test_one_line_per_attack(self):
+        out = self._run()
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 1)
+        rec = json.loads(lines[0])
+        self.assertEqual(rec["ip"], "10.0.0.5")
+
+    def test_no_array_brackets(self):
+        self.assertFalse(self._run().strip().startswith("["))
+
+    def test_ua_dash_becomes_null(self):
+        self.analyzer.attacks = [{
+            "ip": "1.1.1.1", "time": "10/Oct/2023:13:55:37 +0000",
+            "method": "GET", "url": "/x", "protocol": "HTTP/1.1",
+            "status": "200", "size": "1", "referer": "-", "user_agent": "-",
+        }]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.analyzer.report(as_jsonl=True)
+        self.assertIn('"user_agent": null', buf.getvalue())
+
+    def test_time_converted_to_utc(self):
+        self.assertEqual(
+            LogAnalyzer._parse_time("10/Oct/2023:13:55:37 +0300"),
+            "2023-10-10T10:55:37Z",
+        )
+
+    def test_empty_attacks_gives_empty_output(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.analyzer.report(as_jsonl=True)
+        self.assertEqual(buf.getvalue().strip(), "")
 
 class ParseRequestTests(unittest.TestCase):
     def test_simple_request(self):
